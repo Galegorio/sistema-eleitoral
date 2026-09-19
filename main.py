@@ -1,33 +1,38 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
-from collections import defaultdict
 
+from banco import (
+    criar_tabelas, 
+    inserir_candidatos, 
+    buscar_candidatos,
+    eleitor_ja_votou,
+    inserir_eleitor,
+    registrar_voto,
+    contar_votos,
+    contar_votos_especiais
+    )
+from tkinter import ttk, messagebox
 
 class SistemaVotacao:
+    VOTO_BRANCO = "BRANCO"
+    VOTO_NULO = "NULO"
+    TAMANHO_MINIMO_IDENTIFICACAO = 6
+
     def __init__(self, root):
         self.root = root
         self.root.title("Sistema de Votação Eletrônica")
-        self.root.geometry("700x500")
+        self.root.geometry("700x600")
         self.root.resizable(False, False)
 
-        self.candidatos = {
-            "13": "Lula",
-            "22": "Flavio",
-            "33": "Manoel Gomes",
-            "10": "Amado Batista",
-            "0": "Voto em Branco"
-        }
-
-        self.votos = defaultdict(int)
-
-        self.eleitores = set()
+        self.candidatos = buscar_candidatos()
 
         self.eleitor_atual = None
+        self.eleitor_id = None
         self.voto_atual = None
+        self.opcao = None
 
         self.exibir_inicio()
 
-    # Interface Grafica(por enquanto ta horrivel)
+    # Métodos gerais da interface(por enquanto ta horrivel)
 
     def limpar_tela(self):
         for widget in self.root.winfo_children():
@@ -46,7 +51,8 @@ class SistemaVotacao:
         texto,
         comando,
         largura=18,
-        destaque=False
+        destaque=False,
+        cor=None
     ):
         return tk.Button(
             self.root,
@@ -54,9 +60,10 @@ class SistemaVotacao:
             command=comando,
             width=largura,
             font=("Arial", 11, "bold" if destaque else "normal"),
-            bg="#2E8B57" if destaque else None,
-            fg="white" if destaque else None
+            bg=cor if cor else ("#2E8B57" if destaque else None),
+            fg="white" if destaque or cor else None
         )
+
     # Tela inicial
 
     def exibir_inicio(self):
@@ -105,7 +112,30 @@ class SistemaVotacao:
             )
             return
 
-        if identificacao in self.eleitores:
+        if " " in identificacao:
+            messagebox.showwarning(
+                "Identificação inválida",
+                "A identificação não pode conter espaços."
+            )
+            return
+
+        if not identificacao.isdigit():
+            messagebox.showwarning(
+                "Identificação inválida",
+                "Use apenas números na identificação "
+                "(como um título de eleitor)."
+            )
+            return
+
+        if len(identificacao) < self.TAMANHO_MINIMO_IDENTIFICACAO:
+            messagebox.showwarning(
+                "Identificação muito curta",
+                "A identificação deve ter pelo menos "
+                f"{self.TAMANHO_MINIMO_IDENTIFICACAO} dígitos."
+            )
+            return
+
+        if eleitor_ja_votou(identificacao):
             messagebox.showerror(
                 "Eleitor já votou",
                 "Essa identificação já foi utilizada."
@@ -119,7 +149,7 @@ class SistemaVotacao:
 
     def exibir_candidatos(self):
         self.limpar_tela()
-        self.criar_titulo("Escolha seu candidato")
+        self.criar_titulo("Escolha seu voto")
 
         tk.Label(
             self.root,
@@ -127,21 +157,64 @@ class SistemaVotacao:
             font=("Arial", 12)
         ).pack(pady=5)
 
-        self.opcao = tk.StringVar()
+        tk.Label(
+            self.root,
+            text="Selecione um candidato ou uma das opções especiais:",
+            font=("Arial", 11)
+        ).pack(pady=10)
 
-        quadro = tk.Frame(self.root)
-        quadro.pack(pady=15)
+        self.opcao = tk.StringVar(value="")
+
+        quadro_candidatos = tk.LabelFrame(
+            self.root,
+            text="Candidatos",
+            font=("Arial", 11, "bold"),
+            padx=15,
+            pady=10
+        )
+        quadro_candidatos.pack(pady=10)
 
         for numero, nome in self.candidatos.items():
             tk.Radiobutton(
-                quadro,
+                quadro_candidatos,
                 text=f"{numero} - {nome}",
                 variable=self.opcao,
                 value=numero,
                 font=("Arial", 13),
                 width=30,
                 anchor="w"
-            ).pack(anchor="w", pady=5)
+            ).pack(anchor="w", pady=4)
+
+        quadro_especiais = tk.LabelFrame(
+            self.root,
+            text="Opções especiais",
+            font=("Arial", 11, "bold"),
+            padx=15,
+            pady=10
+        )
+        quadro_especiais.pack(pady=10)
+
+        tk.Button(
+            quadro_especiais,
+            text="Voto em Branco",
+            command=lambda: self.selecionar_voto_especial(
+                self.VOTO_BRANCO
+            ),
+            width=25,
+            font=("Arial", 11, "bold"),
+            bg="#D9D9D9"
+        ).pack(pady=5)
+
+        tk.Button(
+            quadro_especiais,
+            text="Voto Nulo",
+            command=lambda: self.selecionar_voto_especial(
+                self.VOTO_NULO
+            ),
+            width=25,
+            font=("Arial", 11, "bold"),
+            bg="#F4B183"
+        ).pack(pady=5)
 
         botoes = tk.Frame(self.root)
         botoes.pack(pady=20)
@@ -159,10 +232,20 @@ class SistemaVotacao:
         tk.Button(
             botoes,
             text="Cancelar",
-            command=self.exibir_inicio,
+            command=self.cancelar_votacao,
             width=15,
             font=("Arial", 11)
         ).grid(row=0, column=1, padx=10)
+
+    def cancelar_votacao(self):
+        self.eleitor_atual = None
+        self.voto_atual = None
+        self.opcao = None
+        self.exibir_inicio()
+
+    def selecionar_voto_especial(self, tipo_voto):
+        self.voto_atual = tipo_voto
+        self.exibir_confirmacao()
 
     def confirmar_selecao(self):
         self.voto_atual = self.opcao.get()
@@ -170,7 +253,7 @@ class SistemaVotacao:
         if not self.voto_atual:
             messagebox.showwarning(
                 "Seleção obrigatória",
-                "Selecione um candidato."
+                "Selecione um candidato, voto em branco ou voto nulo."
             )
             return
 
@@ -178,22 +261,32 @@ class SistemaVotacao:
 
     # Tela de confirmação
 
+    def obter_descricao_voto(self):
+        if self.voto_atual == self.VOTO_BRANCO:
+            return "Voto em Branco"
+
+        if self.voto_atual == self.VOTO_NULO:
+            return "Voto Nulo"
+
+        return (
+            f"{self.voto_atual} - "
+            f"{self.candidatos[self.voto_atual]}"
+        )
+
     def exibir_confirmacao(self):
         self.limpar_tela()
         self.criar_titulo("Confirme seu voto")
-
-        nome = self.candidatos[self.voto_atual]
 
         tk.Label(
             self.root,
             text=(
                 f"Eleitor: {self.eleitor_atual}\n\n"
                 f"Voto selecionado:\n"
-                f"{self.voto_atual} - {nome}"
+                f"{self.obter_descricao_voto()}"
             ),
             font=("Arial", 15),
             justify="center"
-        ).pack(pady=30)
+        ).pack(pady=35)
 
         tk.Label(
             self.root,
@@ -224,9 +317,29 @@ class SistemaVotacao:
         ).grid(row=0, column=1, padx=10)
 
     def registrar_voto(self):
-        self.votos[self.voto_atual] += 1
-        self.eleitores.add(self.eleitor_atual)
+        self.eleitor_id = inserir_eleitor(self.eleitor_atual)
+            
+        if self.voto_atual == self.VOTO_BRANCO:
+            registrar_voto(
+                self.eleitor_id,
+                None,
+                "branco"
+            )
 
+        elif self.voto_atual == self.VOTO_NULO:
+            registrar_voto(
+                self.eleitor_id,
+                None,
+                "nulo"
+            )
+
+        else:
+            registrar_voto(
+                self.eleitor_id,
+                self.voto_atual,
+                "candidato"
+            )
+        
         messagebox.showinfo(
             "Voto registrado",
             "Voto registrado com sucesso!"
@@ -234,6 +347,7 @@ class SistemaVotacao:
 
         self.eleitor_atual = None
         self.voto_atual = None
+        self.opcao = None
 
         self.exibir_inicio()
 
@@ -243,7 +357,13 @@ class SistemaVotacao:
         self.limpar_tela()
         self.criar_titulo("Resultado da votação")
 
-        total_votos = sum(self.votos.values())
+        votos = contar_votos()
+        votos_especiais = contar_votos_especiais()
+
+        votos_brancos = votos_especiais.get("branco", 0)
+        votos_nulos = votos_especiais.get("nulo", 0)
+
+        total_votos = sum(votos.values()) + votos_brancos + votos_nulos
 
         if total_votos == 0:
             tk.Label(
@@ -261,34 +381,56 @@ class SistemaVotacao:
 
         tabela = ttk.Treeview(
             self.root,
-            columns=("candidato", "votos", "percentual"),
+            columns=("categoria", "votos", "percentual"),
             show="headings",
-            height=7
+            height=8
         )
 
-        tabela.heading("candidato", text="Candidato")
+        tabela.heading("categoria", text="Categoria")
         tabela.heading("votos", text="Votos")
         tabela.heading("percentual", text="Percentual")
-
-        tabela.column("candidato", width=270)
+        tabela.column("categoria", width=300)
         tabela.column("votos", width=100, anchor="center")
         tabela.column("percentual", width=120, anchor="center")
-
         tabela.pack(pady=10)
 
         for numero, nome in self.candidatos.items():
-            quantidade = self.votos[numero]
+            quantidade = votos.get(numero, 0)
             percentual = quantidade / total_votos * 100
 
             tabela.insert(
                 "",
                 "end",
                 values=(
-                    f"{numero} - {nome}",
+                    f"Candidato: {numero} - {nome}",
                     quantidade,
                     f"{percentual:.2f}%"
                 )
             )
+
+        percentual_branco = votos_brancos / total_votos * 100
+
+        tabela.insert(
+            "",
+            "end",
+            values=(
+                "Voto em Branco",
+                votos_brancos,
+                f"{percentual_branco:.2f}%"
+            )
+        )
+
+        percentual_nulo = votos_nulos / total_votos * 100
+
+        tabela.insert(
+            "",
+            "end",
+            values=(
+                "Voto Nulo",
+                votos_nulos,
+                f"{percentual_nulo:.2f}%"
+            )
+        )
 
         tk.Label(
             self.root,
@@ -323,16 +465,18 @@ class SistemaVotacao:
         ).grid(row=0, column=1, padx=10)
 
     def obter_vencedor(self):
+
+        votos = contar_votos()
+
         votos_validos = {
-            numero: quantidade
-            for numero, quantidade in self.votos.items()
-            if numero != "0"
+            numero: votos.get(numero, 0)
+            for numero in self.candidatos
         }
 
-        if not votos_validos:
-            return "Não houve votos válidos para candidatos."
-
         maior_quantidade = max(votos_validos.values())
+
+        if maior_quantidade == 0:
+            return "Não houve votos válidos para candidatos."
 
         vencedores = [
             self.candidatos[numero]
@@ -348,12 +492,14 @@ class SistemaVotacao:
 
         return "Empate entre: " + ", ".join(vencedores)
 
-
 def main():
+    criar_tabelas()
+    inserir_candidatos()
+
+
     root = tk.Tk()
     SistemaVotacao(root)
     root.mainloop()
-
 
 if __name__ == "__main__":
     main()
