@@ -94,7 +94,6 @@ O projeto está sendo desenvolvido de forma incremental, dividido em etapas:
 sistema-eleitoral/
 ├── main.py
 ├── banco.py
-├── eleicoes.db
 └── README.md
 ```
 
